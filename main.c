@@ -6,6 +6,8 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Taha Sami <tahasami8@gmail.com>");
 MODULE_DESCRIPTION("Hello, world! driver for Testing");
 
+
+#define BAR0 0
 #define VENDOR_ID 0x1234
 #define DEVICE_ID 0x1111
 
@@ -16,6 +18,46 @@ static const struct pci_device_id my_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci,my_pci_tbl);
 
+static int pci_init(struct pci_dev *pdev);
+
+/*
+*pci_init: Pci initialization routine
+*@pdev : Pci device information
+*
+*return 0 on success
+*/
+static int pci_init(struct pci_dev *pdev){
+    int status;
+    void __iomem *bar0;
+    struct device *dev = &pdev->dev;
+
+    dev = dev_get_drvdata(&pdev->dev);
+
+    status = pcim_enable_device(pdev);
+    if (status < 0){
+        pr_err("Failed to enable pci device\n");
+        return status;
+    }
+
+    pci_set_master(pdev);
+
+    /*Reserve bar0 memory resources*/
+    status = pcim_iomap_regions(pdev,BIT(BAR0),KBUILD_MODNAME);
+    if (status < 0){
+        pr_err("Failed to reserve bar0 memory resources\n");
+        return status;
+    }
+
+    bar0 = pcim_iomap_table(pdev)[BAR0];
+    if(bar0 == NULL){
+        pr_err("Failed to map bar0\n");
+        return -1;
+    }
+    pr_info("BAR0 is mapped to %p\n",bar0);
+
+    
+    return 0;
+}
 
 
 static int config_space_read(struct pci_dev *pdev,const struct pci_device_id *ent){
@@ -23,6 +65,7 @@ static int config_space_read(struct pci_dev *pdev,const struct pci_device_id *en
     u16 vid, did;
     u8 capability_ptr;
     u32 bar0, saved_bar0;
+    uint8_t err=0;
 
     pr_info("%s %d Entering config space read \n", __func__, __LINE__);
 
@@ -73,7 +116,7 @@ static int config_space_read(struct pci_dev *pdev,const struct pci_device_id *en
 
     pr_info("%s %d After writing to BAR0: %04X\n", __func__, __LINE__,bar0);
 
-    if(bar0 & 0x3 == 1)
+    if((bar0 & 0x3) == 1)
         pr_info(" BAR0 is IO space\n");
     else
         pr_info("BAR0 is memory space\n");
@@ -88,6 +131,10 @@ static int config_space_read(struct pci_dev *pdev,const struct pci_device_id *en
         pr_err("%s %d Failed to write BAR0\n", __func__, __LINE__);
         return -1;
     }   
+
+    if(err != pci_init(pdev)){
+        return err;        
+    }
 
     return 0;
     
